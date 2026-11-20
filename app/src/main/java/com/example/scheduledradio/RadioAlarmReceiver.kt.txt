@@ -1,0 +1,49 @@
+package com.example.scheduledradio
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.ContextCompat
+
+class RadioAlarmReceiver : BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val prefs = RadioPreferences(context)
+
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED -> {
+                if (prefs.isScheduleEnabled) {
+                    RadioScheduler.scheduleAll(context)
+                }
+            }
+
+            RadioScheduler.ACTION_START_RADIO -> {
+                rescheduleNextDay(context, intent, RadioScheduler.ACTION_START_RADIO)
+                if (prefs.isScheduleEnabled && prefs.streamUrl.isNotBlank()) {
+                    val serviceIntent = Intent(context, RadioPlaybackService::class.java).apply {
+                        action = RadioPlaybackService.CMD_PLAY
+                        putExtra(RadioPlaybackService.EXTRA_URL, prefs.streamUrl)
+                    }
+                    ContextCompat.startForegroundService(context, serviceIntent)
+                }
+            }
+
+            RadioScheduler.ACTION_STOP_RADIO -> {
+                rescheduleNextDay(context, intent, RadioScheduler.ACTION_STOP_RADIO)
+                val serviceIntent = Intent(context, RadioPlaybackService::class.java).apply {
+                    action = RadioPlaybackService.CMD_STOP
+                }
+                context.startService(serviceIntent)
+            }
+        }
+    }
+
+    private fun rescheduleNextDay(context: Context, intent: Intent, action: String) {
+        val hour = intent.getIntExtra("HOUR", -1)
+        val minute = intent.getIntExtra("MINUTE", -1)
+        val reqCode = intent.getIntExtra("REQ_CODE", -1)
+        if (hour != -1 && minute != -1 && reqCode != -1) {
+            RadioScheduler.scheduleExactTime(context, hour, minute, reqCode, action)
+        }
+    }
+}

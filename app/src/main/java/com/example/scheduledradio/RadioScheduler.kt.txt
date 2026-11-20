@@ -1,0 +1,103 @@
+package com.example.scheduledradio
+
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import java.util.Calendar
+
+object RadioScheduler {
+
+    const val ACTION_START_RADIO = "com.example.scheduledradio.ACTION_START_RADIO"
+    const val ACTION_STOP_RADIO = "com.example.scheduledradio.ACTION_STOP_RADIO"
+
+    private const val REQ_MORNING_START = 101 // 06:25 AM
+    private const val REQ_MORNING_STOP = 102  // 06:55 AM
+    private const val REQ_EVENING_START = 201 // 06:15 PM (18:15)
+    private const val REQ_EVENING_STOP = 202  // 06:30 PM (18:30)
+
+    fun scheduleAll(context: Context) {
+        val prefs = RadioPreferences(context)
+        if (!prefs.isScheduleEnabled) {
+            cancelAll(context)
+            return
+        }
+
+        // Morning Slot: 6:25 AM to 6:55 AM
+        scheduleExactTime(context, 6, 25, REQ_MORNING_START, ACTION_START_RADIO)
+        scheduleExactTime(context, 6, 55, REQ_MORNING_STOP, ACTION_STOP_RADIO)
+
+        // Evening Slot: 6:15 PM (18:15) to 6:30 PM (18:30)
+        scheduleExactTime(context, 18, 15, REQ_EVENING_START, ACTION_START_RADIO)
+        scheduleExactTime(context, 18, 30, REQ_EVENING_STOP, ACTION_STOP_RADIO)
+    }
+
+    fun scheduleExactTime(
+        context: Context,
+        hourOfDay: Int,
+        minute: Int,
+        requestCode: Int,
+        action: String
+    ) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            return
+        }
+
+        val calendar = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, hourOfDay)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+
+            if (timeInMillis <= System.currentTimeMillis()) {
+                add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+
+        val intent = Intent(context, RadioAlarmReceiver::class.java).apply {
+            this.action = action
+            putExtra("HOUR", hourOfDay)
+            putExtra("MINUTE", minute)
+            putExtra("REQ_CODE", requestCode)
+        }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        alarmManager.setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            calendar.timeInMillis,
+            pendingIntent
+        )
+    }
+
+    fun cancelAll(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val codes = listOf(
+            REQ_MORNING_START to ACTION_START_RADIO,
+            REQ_MORNING_STOP to ACTION_STOP_RADIO,
+            REQ_EVENING_START to ACTION_START_RADIO,
+            REQ_EVENING_STOP to ACTION_STOP_RADIO
+        )
+
+        codes.forEach { (code, action) ->
+            val intent = Intent(context, RadioAlarmReceiver::class.java).apply { this.action = action }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                code,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+            }
+        }
+    }
+}
